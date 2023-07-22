@@ -60,6 +60,8 @@ class YoloTRT():
                 host_outputs.append(host_mem)
                 cuda_outputs.append(cuda_mem)
 
+        self.context = self.engine.create_execution_context()
+        self.stream = cuda.Stream()
     def PreProcessImg(self, img):
         image_raw = img
         h, w, c = image_raw.shape
@@ -87,16 +89,14 @@ class YoloTRT():
         image = np.ascontiguousarray(image)
         return image, image_raw, h, w
 
-    def Inference(self, img):
-        input_image, image_raw, origin_h, origin_w = self.PreProcessImg(img)
+    def Inference(self, input_image, image_raw, origin_h, origin_w ):
         np.copyto(host_inputs[0], input_image.ravel())
-        stream = cuda.Stream()
-        self.context = self.engine.create_execution_context()
-        cuda.memcpy_htod_async(cuda_inputs[0], host_inputs[0], stream)
+
+        cuda.memcpy_htod_async(cuda_inputs[0], host_inputs[0], self.stream)
         t1 = time.time()
-        self.context.execute_async(self.batch_size, bindings, stream_handle=stream.handle)
-        cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], stream)
-        stream.synchronize()
+        self.context.execute_async(self.batch_size, bindings, stream_handle=self.stream.handle)
+        cuda.memcpy_dtoh_async(host_outputs[0], cuda_outputs[0], self.stream)
+        self.stream.synchronize()
         t2 = time.time()
         output = host_outputs[0]
                 
@@ -111,7 +111,7 @@ class YoloTRT():
             det["conf"] = result_scores[j]
             det["box"] = box 
             det_res.append(det)
-            self.PlotBbox(box, img, label="{}:{:.2f}".format(self.categories[int(result_classid[j])], result_scores[j]),)
+            self.PlotBbox(box, image_raw, label="{}:{:.2f}".format(self.categories[int(result_classid[j])], result_scores[j]),)
         return det_res, t2-t1
 
     def PostProcess(self, output, origin_h, origin_w):
